@@ -20,6 +20,13 @@
 @tool
 extends EditorPlugin
 
+# This EditorPlugin doesn't really do anything. In ivoyager_core we do
+# different things depending on whether this plugin is present and enabled.
+# To detect that we use:
+#
+# var plugins: PackedStringArray = ProjectSettings.get_setting("editor_plugins/enabled")
+# var tree_saver_enabled := plugins.has("res://addons/ivoyager_tree_saver/plugin.cfg")
+
 const plugin_utils := preload("plugin_utils.gd")
 
 

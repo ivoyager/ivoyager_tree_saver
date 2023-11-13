@@ -143,7 +143,7 @@ func get_gamesave(save_root: Node) -> Array:
 	return gamesave
 
 
-func build_tree_from_gamesave(save_root: Node, gamesave: Array) -> void:
+func build_tree_from_gamesave(gamesave: Array, save_root: Node) -> void:
 	# "save_root" must be the same non-procedural persist node specified in
 	# get_gamesave(save_root).
 	#
