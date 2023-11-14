@@ -26,17 +26,18 @@ extends RefCounted
 ## parts of the scene tree on game load.
 ##
 ## IVTreeSaver can persist Godot built-in types (including arrays and
-## dictionaries) and four kinds of objects:[br][br]
+## dictionaries) and four kinds of 'persist' objects:[br][br]
 ##    
-##    1. 'Non-procedural' Node - May have persist data but won't be freed.[br]
-##    2. 'Procedural' Node - Free and rebuild on game load.[br]
-##    3. 'Procedural' RefCounted - Free and rebuild on game load.[br]
+##    1. 'Non-procedural' Node - May have persist data but won't be freed on
+##       game load.[br]
+##    2. 'Procedural' Node - These will be freed and rebuilt on game load.[br]
+##    3. 'Procedural' RefCounted - These will be freed and rebuilt on game load.[br]
 ##    4. WeakRef to any of above.[br][br]
 ##
-## Arrays and dictionaries containing persisted non-object data can be nested
-## at any level of complexity (array types are also persisted). However, see
-## 'Special rules for persist objects' below for arrays and dictionaries that
-## contain persisted objects.[br][br]
+## Arrays and dictionaries containing non-object data can be nested at any
+## level of complexity (array types are also persisted). Arrays and
+## dictionaries can contain 'persist' objects but must follow rules below
+## under 'Special rules for persist objects'.[br][br]
 ##
 ## A Node or RefCounted is identified as a 'persist' object by the presence of
 ## any one of the following:[br][br]
@@ -45,45 +46,56 @@ extends RefCounted
 ##    [code]const PERSIST_MODE := IVTreeSaver.PERSIST_PROCEDURAL[/code][br]
 ##    [code]var persist_mode_override := [/code] <either of above two values>[br][br]
 ##
-## Lists of properties to persists must be named in constant arrays:[br][br]
+## Lists of properties to persist must be named in object constant arrays:[br][br]
+##
 ##    [code]const PERSIST_PROPERTIES: Array[StringName] = [][/code][br]
 ##    [code]const PERSIST_PROPERTIES2: Array[StringName] = [][/code][br]
-##    (These list names can be modified in static member [code]_persist_property_lists[/code].
-##    The extra numbered lists can be used in subclasses to add persist properties.)[br][br]
+##    (List names can be modified in [IVSaveUtils] static array [code]persist_property_lists[/code].
+##    The extra list is used by subclasses to add persist properties.)[br][br]
 ##
-## To reconstruct a scene, the base node's gdscript must have one of:[br][br]
+## During tree build, Nodes are generally instantiated as scripts: i.e., using
+## [code]Script.new()[/code]. To instantiate a scene instead, the base Node's
+## GDScript must have one of:[br][br]
 ##
 ##    [code]const SCENE := "<path to .tscn file>"[/code][br]
-##    [code]const SCENE_OVERRIDE := "<as above; override may be useful in subclass>"[/code][br][br]
+##    [code]const SCENE_OVERRIDE := "<path to .tscn file>"[/code] (Useful in a sublcass.)[br][br]
 ##
-## Special rules for persist objects:[br][br]
-##    1. Arrays containing persist objects must be typed with
-##       [code]get_typed_builtin() == TYPE_OBJECT[/code]. Objects can't be
-##       nested in containers in an array.[br]
-##    2. Dictionaries keys or values can be persist objects. But dictionary
-##       keys and values cannot be containers of persist objects.[br]
-##    3. Nodes must be in the tree.[br]
-##    4. All ancester nodes up to and including [code]save_root[/code] must also be persist
+## Special rules for 'persist' objects:[br][br]
+##
+##    1. Objects cannot be deeply nested in containers. They can only be
+##       elements of directly persisted arrays or keys or values of directly
+##       persisted dictionaries. I.e., objects must be elements, keys or values
+##       of containers listed in an object's persist constant list.[br]
+##    2. Arrays containing persist objects must be typed as TYPE_OBJECT.[br]
+##    3. Objects CAN be referenced in multiple places. Even circular references
+##       are ok. However, code here can only null object properties listed in
+##       'persist' constant arrays during tree deconstruction. Any other
+##       references to these objects must be nulled by some other code.[br]
+##    4. Nodes must be in the tree.[br]
+##    5. All ancester nodes up to and including [code]save_root[/code] must also be persist
 ##       nodes.[br]
-##    5. Non-procedural Nodes (i.e., [code]PERSIST_PROPERTIES_ONLY[/code]) cannot
+##    6. Non-procedural Nodes (i.e., [code]PERSIST_PROPERTIES_ONLY[/code]) cannot
 ##       have any ancestors that are [code]PERSIST_PROCEDURAL[/code].[br]
-##    6. Non-procedural Nodes must have stable node path.[br]
-##    7. Inner classes can't be persist objects.[br]
-##    8. A persisted RefCounted can only be [code]PERSIST_PROCEDURAL[/code].[br]
-##    9. Persist objects cannot have required args in their [code]_init()[/code]
+##    7. Non-procedural Nodes must have stable node path.[br]
+##    8. Inner classes can't be persist objects.[br]
+##    9. A persisted RefCounted can only be [code]PERSIST_PROCEDURAL[/code].[br]
+##    10. Persist objects cannot have required args in their [code]_init()[/code]
 ##       method.[br][br]
 ##
 ## Warnings:[br][br]
+##
 ##    1. Godot does not allow us to index arrays and dictionaries by reference rather
 ##       than content (see proposal #874 to fix this). Therefore, a single array
 ##       or dictionary persisted in two places (i.e., listed in [code]PERSIST_PROPERTIES[/code]
-##       in two files) will become two separate arrays or dictionaries on load.[br]
-##    2. Be sure to call [code]IVSaveUtils.free_all_procedural_objects()[/code] before calling
-##       [code]build_tree_from_gamesave()[/code]. It's advised to wait a few frames between
-##       to make sure freeing nodes are really gone and not still responding to
-##       signals. (They do and it is a nightmare to troubleshoot!)[br][br]
+##       in two files) will become two separate arrays or dictionaries on load.
+##       (This does not happen for Objects!)[br]
+
 
 const DPRINT := false # set true for debug print
+
+const OBJECT_ID_OFFSET := 10_000_000_000_000 # allows this many different persist values
+const WEAKREF_ID_OFFSET := 2 * OBJECT_ID_OFFSET
+const WEAKREF_NULL_ID := 3 * OBJECT_ID_OFFSET
 
 # localized for convenience
 const PersistMode := IVSaveUtils.PersistMode
@@ -101,8 +113,8 @@ var _persist_property_lists: Array[StringName] = IVSaveUtils.persist_property_li
 var _gamesave_n_objects := 0
 var _gamesave_serialized_nodes := []
 var _gamesave_serialized_refs := []
-var _gamesave_script_paths := [] # TODO: Change to PackedStringArray
 var _gamesave_indexed_values := []
+var _gamesave_script_paths := []
 
 # save processing
 var _save_root: Node
@@ -117,14 +129,12 @@ var _objects: Array[Object] = [] # indexed by object_id
 
 
 
+## Encodes the tree as a data array using object persist constants. 'save_root'
+## may or may not be the main scene tree root. It must be a persist node itself
+## with [code]const PERSIST_MODE = PERSIST_PROPERTIES_ONLY[/code].[br][br]
 func get_gamesave(save_root: Node) -> Array:
-	# "save_root" may or may not be the main scene tree root. It must be a
-	# persist node itself with const PERSIST_MODE = PERSIST_PROPERTIES_ONLY.
-	# Data in the result array includes the save_root and the continuous tree
-	# of persist nodes below that.
-	# TODO: We could recode to allow save_root to be a 'detatched' procedural node.
 	assert(_debug_assert_persist_object(save_root))
-	assert(!IVSaveUtils.is_procedural_object(save_root), "save_root must be PERSIST_PROPERTIES_ONLY")
+	assert(!_is_procedural_object(save_root), "save_root must be PERSIST_PROPERTIES_ONLY")
 	_save_root = save_root
 	assert(!DPRINT or _dprint("* Registering tree for gamesave *"))
 	_index_tree(save_root)
@@ -134,8 +144,8 @@ func get_gamesave(save_root: Node) -> Array:
 		_gamesave_n_objects,
 		_gamesave_serialized_nodes,
 		_gamesave_serialized_refs,
-		_gamesave_script_paths,
 		_gamesave_indexed_values,
+		_gamesave_script_paths,
 		]
 	print("Persist objects saved: ", _gamesave_n_objects, "; nodes in tree: ",
 			save_root.get_tree().get_node_count())
@@ -143,22 +153,24 @@ func get_gamesave(save_root: Node) -> Array:
 	return gamesave
 
 
-func build_tree_from_gamesave(save_root: Node, gamesave: Array) -> void:
-	# "save_root" must be the same non-procedural persist node specified in
-	# get_gamesave(save_root).
-	#
-	# To call this function on another thread, save_root can't be part of the
-	# current scene.
-	#
-	# If building for a loaded game, be sure to free the old procedural tree
-	# using free_all_procedural_objects(). It is recommended to delay a few
-	# frames after that so old freeing objects are no longer recieving signals.
+## Rebuilds the tree using using 'gamesave' data starting from 'save_root',
+## which must be the same non-procedural persist node specified in
+## [code]get_gamesave(save_root)[/code].[br][br]
+##
+## If building from an existing game, be sure to free the old procedural tree
+## using [IVSaveUtils][code].free_all_procedural_objects()[/code] and then delay
+## a few frames (we delay 6) before calling this function. Otherwise, old
+## procedural objects are still alive and may respond to signals during the
+## tree build.
+func build_tree_from_gamesave(gamesave: Array, save_root: Node) -> void:
+	# TODO: Recode to allow save_root to be a 'detatched' procedural node. In
+	# this mode the function takes null for 2nd arg and returns save_root.
 	_save_root = save_root
 	_gamesave_n_objects = gamesave[0]
 	_gamesave_serialized_nodes = gamesave[1]
 	_gamesave_serialized_refs = gamesave[2]
-	_gamesave_script_paths = gamesave[3]
-	_gamesave_indexed_values = gamesave[4]
+	_gamesave_indexed_values = gamesave[3]
+	_gamesave_script_paths = gamesave[4]
 	_load_scripts()
 	_locate_or_instantiate_objects(save_root)
 	_deserialize_all_object_data()
@@ -190,14 +202,14 @@ func _index_tree(node: Node) -> void:
 	_object_ids[node] = _gamesave_n_objects
 	_gamesave_n_objects += 1
 	for child in node.get_children():
-		if IVSaveUtils.is_persist_object(child):
+		if _is_persist_object(child):
 			_index_tree(child)
 
 
 func _serialize_tree(node: Node) -> void:
 	_serialize_node(node)
 	for child in node.get_children():
-		if IVSaveUtils.is_persist_object(child):
+		if _is_persist_object(child):
 			_serialize_tree(child)
 
 
@@ -226,7 +238,6 @@ func _locate_or_instantiate_objects(save_root: Node) -> void:
 		else: # this is a procedural node
 			var script: Script = _scripts[script_id]
 			node = IVSaveUtils.make_object_or_scene(script)
-			@warning_ignore("unsafe_call_argument")
 			assert(!DPRINT or _dprint(object_id, node, script_id, _gamesave_script_paths[script_id]))
 		assert(node)
 		_objects[object_id] = node
@@ -238,7 +249,6 @@ func _locate_or_instantiate_objects(save_root: Node) -> void:
 		var ref: RefCounted = script.new()
 		assert(ref)
 		_objects[object_id] = ref
-		@warning_ignore("unsafe_call_argument")
 		assert(!DPRINT or _dprint(object_id, ref, script_id, _gamesave_script_paths[script_id]))
 
 
@@ -254,7 +264,7 @@ func _build_procedural_tree() -> void:
 	for serialized_node: Array in _gamesave_serialized_nodes:
 		var object_id: int = serialized_node[0]
 		var node: Node = _objects[object_id]
-		if IVSaveUtils.is_procedural_object(node):
+		if _is_procedural_object(node):
 			var parent_save_id: int = serialized_node[2]
 			var parent: Node = _objects[parent_save_id]
 			parent.add_child(node)
@@ -267,11 +277,10 @@ func _serialize_node(node: Node) -> void:
 	var object_id: int = _object_ids[node]
 	serialized_node.append(object_id) # index 0
 	var script_id := -1
-	var is_procedural := IVSaveUtils.is_procedural_object(node)
+	var is_procedural := _is_procedural_object(node)
 	if is_procedural:
 		var script: Script = node.get_script()
 		script_id = _get_script_id(script)
-		@warning_ignore("unsafe_call_argument")
 		assert(!DPRINT or _dprint(object_id, node, script_id, _gamesave_script_paths[script_id]))
 	else:
 		assert(!DPRINT or _dprint(object_id, node, node.name))
@@ -289,7 +298,7 @@ func _serialize_node(node: Node) -> void:
 
 
 func _index_and_serialize_ref(ref: RefCounted) -> int:
-	assert(IVSaveUtils.is_procedural_object(ref), "RefCounted must be PERSIST_PROCEDURAL")
+	assert(_is_procedural_object(ref), "RefCounted must be PERSIST_PROCEDURAL")
 	var object_id := _gamesave_n_objects
 	_gamesave_n_objects += 1
 	_object_ids[ref] = object_id
@@ -297,7 +306,6 @@ func _index_and_serialize_ref(ref: RefCounted) -> int:
 	serialized_ref.append(object_id) # index 0
 	var script: Script = ref.get_script()
 	var script_id := _get_script_id(script)
-	@warning_ignore("unsafe_call_argument")
 	assert(!DPRINT or _dprint(object_id, ref, script_id, _gamesave_script_paths[script_id]))
 	serialized_ref.append(script_id) # index 1
 	_serialize_object_data(ref, serialized_ref)
@@ -362,49 +370,49 @@ func _deserialize_object_data(serialized_object: Array, is_node: bool) -> void:
 
 
 func _get_encoded_value(value: Variant) -> Variant:
-	# Encoded values are ALWAYS of type Array, Dictionary or int.
+	# Return is an int, Array or Dictionary.
 	var type := typeof(value)
+	if type == TYPE_ARRAY:
+		var array: Array = value
+		return _get_encoded_array(array) # array
 	if type == TYPE_DICTIONARY:
 		var dict: Dictionary = value
 		return _get_encoded_dict(dict) # dict
-	if type == TYPE_ARRAY:
-		var array: Array = value
-		return _get_encoded_array(array) # array (1st element is never StringName)
 	if type == TYPE_OBJECT:
 		var object: Object = value
-		return _get_encoded_object(object) # array of size 2 w/ first element StringName
-	# Anything else is built-in type that we index. Indexing allows object encoding
-	# above and optimizes for duplicate data (e.g., very many identical dict keys).
-	var value_id: int
+		return _get_encoded_object(object) # int >= OBJECT_ID_OFFSET
+	# Anything else is built-in type that we index. String/StringName are
+	# interchangeable as dictionary keys, so we index String using a separate
+	# dictionary.
+	var index: int
 	if type == TYPE_STRING:
-		# we have to index Strings separately from StringNames
-		value_id = _indexed_string_ids.get(value, -1)
-		if value_id == -1:
-			value_id = _gamesave_indexed_values.size()
+		index = _indexed_string_ids.get(value, -1)
+		if index == -1:
+			index = _gamesave_indexed_values.size()
 			_gamesave_indexed_values.append(value)
-			_indexed_string_ids[value] = value_id
-		return value_id
-	value_id = _indexed_nonstring_ids.get(value, -1)
-	if value_id == -1:
-		value_id = _gamesave_indexed_values.size()
+			_indexed_string_ids[value] = index
+		return index
+	index = _indexed_nonstring_ids.get(value, -1)
+	if index == -1:
+		index = _gamesave_indexed_values.size()
 		_gamesave_indexed_values.append(value)
-		_indexed_nonstring_ids[value] = value_id
-	return value_id
+		_indexed_nonstring_ids[value] = index
+	return index
 
 
 func _get_decoded_value(encoded_value: Variant) -> Variant:
-	# 'encoded_value' can only be an array, dictionary or int.
+	# 'encoded_value' is an int, Array or Dictionary.
 	var encoded_type := typeof(encoded_value)
-	if encoded_type == TYPE_INT: # indexed built-in type
-		var value_id: int = encoded_value
-		return _gamesave_indexed_values[value_id]
-	if encoded_type == TYPE_DICTIONARY:
-		var encoded_dict: Dictionary = encoded_value
-		return _get_decoded_dict(encoded_dict)
-	var encoded_array_or_obj: Array = encoded_value
-	if encoded_array_or_obj.size() == 2 and typeof(encoded_array_or_obj[0]) == TYPE_STRING_NAME:
-		return _get_decoded_object(encoded_array_or_obj)
-	return _get_decoded_array(encoded_array_or_obj)
+	if encoded_type == TYPE_INT:
+		var index: int = encoded_value
+		if index >= OBJECT_ID_OFFSET:
+			return _get_decoded_object(index)
+		return _gamesave_indexed_values[index] # indexed built-in type
+	if encoded_type == TYPE_ARRAY:
+		var encoded_array: Array = encoded_value
+		return _get_decoded_array(encoded_array)
+	var encoded_dict: Dictionary = encoded_value
+	return _get_decoded_dict(encoded_dict)
 
 
 func _get_encoded_array(array: Array) -> Array:
@@ -414,8 +422,8 @@ func _get_encoded_array(array: Array) -> Array:
 	# https://github.com/godotengine/godot/issues/76841
 	# Therefore, we append type info so we can pop it in the decode method.
 	#
-	# TODO: When above issue is fixed, we can optimize here substantially by
-	# duplicating non-object arrays. (We have many typed data arrays!)
+	# TODO: When above issue is fixed, we can optimize here by duplicating
+	# non-object arrays. (We have many typed data arrays!)
 	
 	var encoded_array := []
 	var array_type := array.get_typed_builtin()
@@ -426,14 +434,12 @@ func _get_encoded_array(array: Array) -> Array:
 		encoded_array[index] = _get_encoded_value(array[index])
 		index += 1
 	
-	# Append array type info to the encoded array. Be careful: array[0] must
-	# never by of type StringName or the ecoded array might be confused with
-	# an encoded object. (An empty array here will get an id in position 0.)
+	# Append array type info to the encoded array.
 	if array.is_typed():
 		var script: Script = array.get_typed_script()
 		var script_id := _get_script_id(script) if script else -1
 		encoded_array.append(script_id)
-		encoded_array.append(array.get_typed_class_name())
+		encoded_array.append(array.get_typed_class_name()) # StringName
 		encoded_array.append(array_type) # last element
 	else:
 		encoded_array.append(-1) # last element
@@ -481,37 +487,50 @@ func _get_decoded_dict(encoded_dict: Dictionary) -> Dictionary:
 	return dict
 
 
-func _get_encoded_object(object: Object) -> Array:
-	# Encoded object is an array with 2 elements where the first element is a
-	# StringName (&"r" or &"w") and the second is an int (object_id). This
-	# can't be confused with an encoded array because an encoded array can only
-	# have 1st element of type array, dictionary or int.
+func _get_encoded_object(object: Object) -> int:
 	var is_weak_ref := false
 	if object is WeakRef:
 		var wr: WeakRef = object
 		object = wr.get_ref()
 		if object == null:
-			return [&"w", -1] # WeakRef to a dead object
+			return WEAKREF_NULL_ID # WeakRef to a dead object
 		is_weak_ref = true
 	assert(_debug_assert_persist_object(object))
 	var object_id: int = _object_ids.get(object, -1)
 	if object_id == -1:
+		assert(object is RefCounted, "Possible reference to Node that is not in the tree")
 		var ref: RefCounted = object
 		object_id = _index_and_serialize_ref(ref)
 	if is_weak_ref:
-		return [&"w", object_id] # WeakRef
-	return [&"r", object_id] # Object
+		return object_id + WEAKREF_ID_OFFSET # WeakRef
+	return object_id + OBJECT_ID_OFFSET # Object
 
 
-func _get_decoded_object(encoded_object: Array) -> Object:
-	var object_id: int = encoded_object[1]
-	if encoded_object[1] == -1:
-		assert(encoded_object[0] == &"w")
+func _get_decoded_object(encoded_object: int) -> Object:
+	if encoded_object == WEAKREF_NULL_ID:
 		return WeakRef.new() # weak ref to dead object
-	var object: Object = _objects[object_id]
-	if encoded_object[0] == &"w":
+	if encoded_object >= WEAKREF_ID_OFFSET:
+		var object: Object = _objects[encoded_object - WEAKREF_ID_OFFSET]
 		return weakref(object)
-	return object
+	return _objects[encoded_object - OBJECT_ID_OFFSET]
+
+
+func _is_persist_object(object: Object) -> bool:
+	# Duplicated from IVSaveUtils for speed.
+	if &"persist_mode_override" in object:
+		return object.get(&"persist_mode_override") != NO_PERSIST
+	if &"PERSIST_MODE" in object:
+		return object.get(&"PERSIST_MODE") != NO_PERSIST
+	return false
+
+
+func _is_procedural_object(object: Object) -> bool:
+	# Duplicated from IVSaveUtils for speed.
+	if &"persist_mode_override" in object:
+		return object.get(&"persist_mode_override") == PERSIST_PROCEDURAL
+	if &"PERSIST_MODE" in object:
+		return object.get(&"PERSIST_MODE") == PERSIST_PROCEDURAL
+	return false
 
 
 func _debug_is_valid_persist_value(value: Variant) -> bool:
@@ -562,7 +581,7 @@ func _debug_is_valid_persist_value(value: Variant) -> bool:
 
 
 func _debug_assert_persist_object(object: Object) -> bool:
-	if !IVSaveUtils.is_persist_object(object):
+	if !_is_persist_object(object):
 		assert(false, "Can't persist a non-persist object; see IVTreeSaver doc")
 		return false
 	return true
