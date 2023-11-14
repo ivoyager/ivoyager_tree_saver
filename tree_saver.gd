@@ -46,7 +46,7 @@ extends RefCounted
 ##    [code]const PERSIST_MODE := IVTreeSaver.PERSIST_PROCEDURAL[/code][br]
 ##    [code]var persist_mode_override := [/code] <either of above two values>[br][br]
 ##
-## Lists of properties to persists must be named in object constant arrays:[br][br]
+## Lists of properties to persist must be named in object constant arrays:[br][br]
 ##
 ##    [code]const PERSIST_PROPERTIES: Array[StringName] = [][/code][br]
 ##    [code]const PERSIST_PROPERTIES2: Array[StringName] = [][/code][br]
@@ -61,6 +61,7 @@ extends RefCounted
 ##    [code]const SCENE_OVERRIDE := "<path to .tscn file>"[/code] (Useful in a sublcass.)[br][br]
 ##
 ## Special rules for 'persist' objects:[br][br]
+##
 ##    1. Objects cannot be deeply nested in containers. They can only be
 ##       elements of directly persisted arrays or keys or values of directly
 ##       persisted dictionaries. I.e., objects must be elements, keys or values
@@ -82,6 +83,7 @@ extends RefCounted
 ##       method.[br][br]
 ##
 ## Warnings:[br][br]
+##
 ##    1. Godot does not allow us to index arrays and dictionaries by reference rather
 ##       than content (see proposal #874 to fix this). Therefore, a single array
 ##       or dictionary persisted in two places (i.e., listed in [code]PERSIST_PROPERTIES[/code]
