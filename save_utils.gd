@@ -20,11 +20,16 @@
 class_name IVSaveUtils
 extends Object
 
+## Provides static utility functions related to game save/load and object
+## 'persist' properties.
+##
+## See [IVTreeSaver] for detailed explanation of object persistence.
 ## An object is identified as 'persist' if it has [code]const PERSIST_MODE[/code]
 ## with any value != NO_PERSIST. An object instance can override its class constant
 ## using property [code]persist_mode_override[/code]. NO_PERSIST is exactly
-## equivilant to the class not having [code]const PERSIST_MODE[/code] or
-## [code]var persist_mode_override[/code].
+## equivilant to the class not having [code]PERSIST_MODE[/code] or
+## [code]persist_mode_override[/code].
+
 enum PersistMode {
 	NO_PERSIST, ## Non-persist object.
 	PERSIST_PROPERTIES_ONLY, ## Object will not be freed (Node only; must have stable NodePath).
@@ -120,11 +125,11 @@ static func free_procedural_nodes_recursive(root_node: Node) -> void:
 
 
 ## Clones object properties using [code]persist_property_lists[/code] constants
-## in the origin class. Arrays and Dictionaries are duplicated (deep == true).
+## in the origin class. Arrays and Dictionaries are duplicated (deep = true).
 ## However, Objects will be set without duplication.[br][br]
 ##
-## In expected usage 'origin' and 'clone' are the same class. However, the
-## only requirement here is that they have the exact same persist properties.
+## [code]origin[/code] and [code]clone[/code] must have the exact same persist
+## properties.[br][br]
 ##
 ## This method is not used by [IVTreeSaver]. It uses the same persist property
 ## lists however, so may be useful.
@@ -148,7 +153,7 @@ static func clone_persist_properties(origin: Object, clone: Object) -> void:
 ## Generates an array of object properties using [code]persist_property_lists[/code]
 ## constants in the origin class. Getting the result from this function and
 ## passing it with a 'clone' object to [code]set_persist_properties()[/code] is
-## equivilent to [code]clone_persist_properties()[/code]
+## equivalent to [code]clone_persist_properties(origin, clone)[/code]
 static func get_persist_properties(origin: Object) -> Array:
 	var array := []
 	for properties_array in persist_property_lists:
@@ -179,8 +184,9 @@ static func set_persist_properties(clone: Object, array: Array) -> void:
 			clone.set(property, array[i])
 			i += 1
 
-
-static func get_persist_mode(object: Object) -> int:
+## Returns one of PersistMode enums depending on object class constants or
+## instance override or lack thereof.
+static func get_persist_mode(object: Object) -> PersistMode:
 	if &"persist_mode_override" in object:
 		return object.get(&"persist_mode_override")
 	if &"PERSIST_MODE" in object:
@@ -210,7 +216,7 @@ static func is_procedural_object(object: Object) -> bool:
 ## it must be a valid path to a Script or PackedScene file resource.[br][br]
 ##
 ## If Script has const [code]SCENE[/code] or [code]SCENE_OVERRIDE[/code], then
-## that constant value is used as path to intantiate a scene. 
+## that constant value is used as path to instantiate a scene. 
 static func make_object_or_scene(arg: Variant) -> Object:
 	var arg_type := typeof(arg)
 	var packedscene: PackedScene
