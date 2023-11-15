@@ -20,7 +20,6 @@
 class_name IVTreeSaver
 extends RefCounted
 
-
 ## Generates a compact game-save data structure from properties specified in
 ## object constants in a scene tree. Sets properties and rebuilds procedural
 ## parts of the scene tree on game load.
@@ -507,12 +506,12 @@ func _get_encoded_object(object: Object) -> int:
 
 
 func _get_decoded_object(encoded_object: int) -> Object:
-	if encoded_object == WEAKREF_NULL_ID:
-		return WeakRef.new() # weak ref to dead object
-	if encoded_object >= WEAKREF_ID_OFFSET:
+	if encoded_object < WEAKREF_ID_OFFSET:
+		return _objects[encoded_object - OBJECT_ID_OFFSET]
+	if encoded_object < WEAKREF_NULL_ID:
 		var object: Object = _objects[encoded_object - WEAKREF_ID_OFFSET]
 		return weakref(object)
-	return _objects[encoded_object - OBJECT_ID_OFFSET]
+	return WeakRef.new() # weak ref to dead object
 
 
 func _is_persist_object(object: Object) -> bool:
