@@ -20,15 +20,10 @@
 class_name IVSaveUtils
 extends Object
 
-## Provides static utility functions related to game save/load and object
-## 'persist' properties.
+## Static utility class that provides methods related to game save/load and
+## object 'persist' properties.
 ##
-## See [IVTreeSaver] for detailed explanation of object persistence.
-## An object is identified as 'persist' if it has [code]const PERSIST_MODE[/code]
-## with any value != NO_PERSIST. An object instance can override its class constant
-## using property [code]persist_mode_override[/code]. NO_PERSIST is exactly
-## equivilant to the class not having [code]PERSIST_MODE[/code] or
-## [code]persist_mode_override[/code].
+## See [IVTreeSaver] for explanation of tree persistence.
 
 enum PersistMode {
 	NO_PERSIST, ## Non-persist object.
@@ -40,81 +35,25 @@ const NO_PERSIST := PersistMode.NO_PERSIST
 const PERSIST_PROPERTIES_ONLY := PersistMode.PERSIST_PROPERTIES_ONLY
 const PERSIST_PROCEDURAL := PersistMode.PERSIST_PROCEDURAL
 
-## Names of property arrays to use in persist objects. It's useful to have
-## multiple lists so object subclasses can add properties. These should
-## probably be class constants, but code here doesn't care.
+## A static list of names of the constants that define persist properties in a
+## persist object. In base configuration these are [param &"PERSIST_PROPERTIES"]
+## and [param &"PERSIST_PROPERTIES2"]. The extra list name is provided for
+## subclassing.
 static var persist_property_lists: Array[StringName] = [
 	&"PERSIST_PROPERTIES",
 	&"PERSIST_PROPERTIES2",
 ]
 
 
-## Frees all 'procedural' Node and RefCounted instances starting from
-## [code]root_node[/code] (which may or may not be procedural). This method
-## first nulls all references to procedural objects everywhere, then frees the
-## base procedural Nodes.[br][br]
-## Call this method before [code]build_tree()[/code].[br][br]
-## WARNING: We assume that all references to procedural RefCounteds are listed
-## in [code]persist_property_lists[/code] constants in the target objects. Any
-## other references must be nulled by some other code.
-static func free_all_procedural_objects(root_node: Node) -> void:
-	null_procedural_references_recursive(root_node)
+## See [method IVTreeSaver.free_procedural_objects_recursive].
+static func free_procedural_objects_recursive(root_node: Node) -> void:
+	_null_procedural_references_recursive(root_node, {})
 	free_procedural_nodes_recursive(root_node)
 
 
-## Nulls all property and container references to 'procedural' objects
-## recursively.
-static func null_procedural_references_recursive(object: Object, nulled_objects := {}) -> void:
-	
-	# Don't process circular references.
-	if nulled_objects.has(object):
-		return
-	nulled_objects[object] = true
-	
-	# Recursive call to all nodes. All procedural nodes must be in the tree!
-	if object is Node:
-		var node: Node = object
-		for child in node.get_children():
-			if is_persist_object(child):
-				null_procedural_references_recursive(child, nulled_objects)
-	
-	# Null all procedural object references with recursive calls to RefCounteds
-	for properties_array_name in persist_property_lists:
-		if not properties_array_name in object:
-			continue
-		var properties_array: Array = object.get(properties_array_name)
-		for property: StringName in properties_array:
-			var value: Variant = object.get(property)
-			var type := typeof(value)
-			if type == TYPE_OBJECT:
-				var property_object: Object = value
-				null_procedural_references_recursive(property_object, nulled_objects)
-				object.set(property, null)
-			elif type == TYPE_ARRAY:
-				# test elements if Object-typed only
-				var array: Array = value
-				if array.get_typed_builtin() == TYPE_OBJECT:
-					for i in array.size():
-						var array_object: Object = array[i]
-						null_procedural_references_recursive(array_object, nulled_objects)
-						array[i] = null
-			elif type == TYPE_DICTIONARY:
-				# test all keys and values
-				var dict: Dictionary = value
-				for key: Variant in dict.keys():
-					var dict_value: Variant = dict[key]
-					if typeof(dict_value) == TYPE_OBJECT:
-						var value_object: Object = dict_value
-						null_procedural_references_recursive(value_object, nulled_objects)
-						dict[key] = null
-					if typeof(key) == TYPE_OBJECT:
-						var key_object: Object = key
-						null_procedural_references_recursive(key_object, nulled_objects)
-						dict.erase(key)
-
-
-## Frees all 'procedural' Nodes at or below [code]root_node[/code]. Note: It's
-## usually better to call [code]free_all_procedural_objects()[/code] instead! 
+## Frees all procedural [Node]s at or below [param root_node]. Note:
+## [method free_procedural_objects_recursive] provides a more thorough deconstruction
+## that can handle circular [RefCounted] references.
 static func free_procedural_nodes_recursive(root_node: Node) -> void:
 	if is_procedural_object(root_node):
 		root_node.queue_free() # children will also be freed!
@@ -124,15 +63,10 @@ static func free_procedural_nodes_recursive(root_node: Node) -> void:
 			free_procedural_nodes_recursive(child)
 
 
-## Clones object properties using [code]persist_property_lists[/code] constants
-## in the origin class. Arrays and Dictionaries are duplicated (deep = true).
-## However, Objects will be set without duplication.[br][br]
-##
-## [code]origin[/code] and [code]clone[/code] must have the exact same persist
-## properties.[br][br]
-##
-## This method is not used by [IVTreeSaver]. It uses the same persist property
-## lists however, so may be useful.
+## Clones object properties using [member persist_property_lists] in the
+## [param origin] class. [param origin] and [param clone] must have the same
+## persist properties. Arrays and Dictionaries are duplicated (deep = true).
+## However, Objects will be set without duplication.
 static func clone_persist_properties(origin: Object, clone: Object) -> void:
 	for properties_array in persist_property_lists:
 		if not properties_array in origin:
@@ -150,10 +84,9 @@ static func clone_persist_properties(origin: Object, clone: Object) -> void:
 			clone.set(property, value)
 
 
-## Generates an array of object properties using [code]persist_property_lists[/code]
-## constants in the origin class. Getting the result from this function and
-## passing it with a 'clone' object to [code]set_persist_properties()[/code] is
-## equivalent to [code]clone_persist_properties(origin, clone)[/code]
+## Generates an array of persist property values from [param object] using
+## [member persist_property_lists]. Using this method in combination with
+## [method set_persist_properties] is equivalent to [method clone_persist_properties].
 static func get_persist_properties(origin: Object) -> Array:
 	var array := []
 	for properties_array in persist_property_lists:
@@ -173,7 +106,7 @@ static func get_persist_properties(origin: Object) -> Array:
 	return array
 
 
-## Sets properties from array generated by [code]get_persist_properties()[/code].
+## Sets properties from an array generated by [method get_persist_properties].
 static func set_persist_properties(clone: Object, array: Array) -> void:
 	var i := 0
 	for properties_array in persist_property_lists:
@@ -184,8 +117,22 @@ static func set_persist_properties(clone: Object, array: Array) -> void:
 			clone.set(property, array[i])
 			i += 1
 
-## Returns one of PersistMode enums depending on object class constants or
-## instance override or lack thereof.
+
+## Generates an array of persist property names in [param object] using
+## [member persist_property_lists].
+static func get_persist_property_names(object: Object) -> Array[StringName]:
+	var array: Array[StringName] = []
+	for properties_array in persist_property_lists:
+		if not properties_array in object:
+			continue
+		var properties: Array[StringName] = object.get(properties_array)
+		array.append_array(properties)
+	return array
+
+
+## Returns one of [enum PersistMode] enums. Returns [enum PersistMode.NO_PERSIST]
+## if [param object] does not have member [param PERSIST_MODE] or
+## [param persist_mode_override].
 static func get_persist_mode(object: Object) -> PersistMode:
 	if &"persist_mode_override" in object:
 		return object.get(&"persist_mode_override")
@@ -194,6 +141,8 @@ static func get_persist_mode(object: Object) -> PersistMode:
 	return NO_PERSIST
 
 
+## Returns true if [param object] is [enum PersistMode.PERSIST_PROPERTIES_ONLY]
+## or [enum PersistMode.PERSIST_PROCEDURAL], otherwise false.
 static func is_persist_object(object: Object) -> bool:
 	if &"persist_mode_override" in object:
 		return object.get(&"persist_mode_override") != NO_PERSIST
@@ -202,6 +151,8 @@ static func is_persist_object(object: Object) -> bool:
 	return false
 
 
+## Returns true if [param object] is [enum PersistMode.PERSIST_PROCEDURAL],
+## otherwise false.
 static func is_procedural_object(object: Object) -> bool:
 	if &"persist_mode_override" in object:
 		return object.get(&"persist_mode_override") == PERSIST_PROCEDURAL
@@ -210,13 +161,14 @@ static func is_procedural_object(object: Object) -> bool:
 	return false
 
 
-## Returns an instantiated Object or the root Node of an instantiated scene.[br][br]
+## Returns an instantiated [Object] or the root [Node] of an instantiated scene.[br][br]
 ##
-## [code]arg[/code] can be a Script, PackedScene, or String. If it is a String,
+## [param arg] can be a [Script], [PackedScene], or [String]. If it is a String,
 ## it must be a valid path to a Script or PackedScene file resource.[br][br]
 ##
-## If Script has const [code]SCENE[/code] or [code]SCENE_OVERRIDE[/code], then
-## that constant value is used as path to instantiate a scene. 
+## If the supplied Script or file-loaded Script has constant [param SCENE] or
+## [param SCENE_OVERRIDE], then the constant value is used as path to
+## instantiate a scene. 
 static func make_object_or_scene(arg: Variant) -> Object:
 	var arg_type := typeof(arg)
 	var packedscene: PackedScene
@@ -261,7 +213,8 @@ static func make_object_or_scene(arg: Variant) -> Object:
 		root_node.set_script(script)
 	return root_node
 
-
+## Returns either a Script or a PackedScene, depending on [param path] file
+## extension. Throws error if it fails to load [param path].
 static func get_script_or_packedscene(path: String) -> Resource:
 	if !path:
 		assert(false, "Requires path")
@@ -279,10 +232,12 @@ static func get_script_or_packedscene(path: String) -> Resource:
 # logging
 static var _log_count_by_class := {}
 
-static func get_tree_debugging_log(save_root: Node, compare_class_count: bool,
+## Call before save and after load for a debug log. Delay the post-load call if
+## the loaded objects build additional tree items.
+static func get_tree_debug_log(save_root: Node, compare_class_count: bool,
 		log_persist_nodes := true, log_all_nodes := false,
 		print_stray_nodes := false, print_tree := false) -> PackedStringArray:
-	# Call before and after all external save/load stuff completed.
+	
 	var debug_log := PackedStringArray()
 	var count := 0
 	
@@ -341,4 +296,52 @@ static func _log_nodes(node: Node, log_all_nodes: bool, debug_log: PackedStringA
 			count = _log_nodes(child, log_all_nodes, debug_log, count)
 	
 	return count
+
+
+static func _null_procedural_references_recursive(object: Object, nulled: Dictionary) -> void:
+	# Don't process circular references.
+	if nulled.has(object):
+		return
+	nulled[object] = true
+	
+	# Recursive call to all nodes. All procedural nodes must be in the tree!
+	if object is Node:
+		var node: Node = object
+		for child in node.get_children():
+			if is_persist_object(child):
+				_null_procedural_references_recursive(child, nulled)
+	
+	# Null all procedural object references with recursive calls to RefCounteds
+	for properties_array_name in persist_property_lists:
+		if not properties_array_name in object:
+			continue
+		var properties_array: Array = object.get(properties_array_name)
+		for property: StringName in properties_array:
+			var value: Variant = object.get(property)
+			var type := typeof(value)
+			if type == TYPE_OBJECT:
+				var property_object: Object = value
+				_null_procedural_references_recursive(property_object, nulled)
+				object.set(property, null)
+			elif type == TYPE_ARRAY:
+				# test elements if Object-typed only
+				var array: Array = value
+				if array.get_typed_builtin() == TYPE_OBJECT:
+					for i in array.size():
+						var array_object: Object = array[i]
+						_null_procedural_references_recursive(array_object, nulled)
+						array[i] = null
+			elif type == TYPE_DICTIONARY:
+				# test all keys and values
+				var dict: Dictionary = value
+				for key: Variant in dict.keys():
+					var dict_value: Variant = dict[key]
+					if typeof(dict_value) == TYPE_OBJECT:
+						var value_object: Object = dict_value
+						_null_procedural_references_recursive(value_object, nulled)
+						dict[key] = null
+					if typeof(key) == TYPE_OBJECT:
+						var key_object: Object = key
+						_null_procedural_references_recursive(key_object, nulled)
+						dict.erase(key)
 
