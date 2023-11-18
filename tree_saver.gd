@@ -423,7 +423,8 @@ func _deserialize_object_data(serialized_object: Array, is_node: bool) -> void:
 
 
 func _get_encoded_value(value: Variant) -> Variant:
-	# Return is an int, Array or Dictionary.
+	# Returns Array, Dictionary, int (object_id or index), or non-string
+	# built-in type.
 	var type := typeof(value)
 	if type == TYPE_ARRAY:
 		var array: Array = value
@@ -435,38 +436,43 @@ func _get_encoded_value(value: Variant) -> Variant:
 		var object: Object = value
 		return _get_encoded_object(object) # int >= _OBJECT_ID_OFFSET
 	
-	# Anything else is a built-in type that we index. String/StringName are
-	# interchangeable as dictionary keys, so we index Strings in their own
-	# dictionary.
-	var index: int
+	# Index string types to avoid duplicated strings (e.g., many dict keys).
+	# String/StringName are interchangeable as dictionary keys, so we index
+	# Strings in their own dictionary. We have to index int for the decode.
+	if type == TYPE_INT or type == TYPE_STRING_NAME:
+		var index: int = _indexed_nonstring_ids.get(value, -1)
+		if index == -1:
+			index = _gamesave_indexed_values.size()
+			_gamesave_indexed_values.append(value)
+			_indexed_nonstring_ids[value] = index
+		return index
 	if type == TYPE_STRING:
-		index = _indexed_string_ids.get(value, -1)
+		var index: int = _indexed_string_ids.get(value, -1)
 		if index == -1:
 			index = _gamesave_indexed_values.size()
 			_gamesave_indexed_values.append(value)
 			_indexed_string_ids[value] = index
 		return index
-	index = _indexed_nonstring_ids.get(value, -1)
-	if index == -1:
-		index = _gamesave_indexed_values.size()
-		_gamesave_indexed_values.append(value)
-		_indexed_nonstring_ids[value] = index
-	return index
+	
+	# Built-in saved as-is
+	return value
 
 
 func _get_decoded_value(encoded_value: Variant) -> Variant:
-	# 'encoded_value' is an int, Array or Dictionary.
+	# Decode int, Array or Dictionary; otherwise return as is.
 	var encoded_type := typeof(encoded_value)
-	if encoded_type == TYPE_INT:
+	if encoded_type == TYPE_INT: # object or indexed value
 		var index: int = encoded_value
 		if index >= _OBJECT_ID_OFFSET:
 			return _get_decoded_object(index)
-		return _gamesave_indexed_values[index] # indexed built-in type
+		return _gamesave_indexed_values[index]
 	if encoded_type == TYPE_ARRAY:
 		var encoded_array: Array = encoded_value
 		return _get_decoded_array(encoded_array)
-	var encoded_dict: Dictionary = encoded_value
-	return _get_decoded_dict(encoded_dict)
+	if encoded_type == TYPE_DICTIONARY:
+		var encoded_dict: Dictionary = encoded_value
+		return _get_decoded_dict(encoded_dict)
+	return encoded_value
 
 
 func _get_encoded_array(array: Array) -> Array:
@@ -481,22 +487,23 @@ func _get_encoded_array(array: Array) -> Array:
 	
 	var encoded_array := []
 	var array_type := array.get_typed_builtin()
+	var is_typed := array_type != TYPE_NIL
 	var size := array.size()
-	encoded_array.resize(size)
+	encoded_array.resize(size + (3 if is_typed else 1))
 	var index := 0
 	while index < size:
 		encoded_array[index] = _get_encoded_value(array[index])
 		index += 1
 	
 	# Append array type info to the encoded array.
-	if array.is_typed():
+	if is_typed:
 		var script: Script = array.get_typed_script()
 		var script_id := _get_script_id(script) if script else -1
-		encoded_array.append(script_id)
-		encoded_array.append(array.get_typed_class_name()) # StringName
-		encoded_array.append(array_type) # last element
+		encoded_array[-3] = script_id
+		encoded_array[-2] = array.get_typed_class_name() # StringName
+		encoded_array[-1] = array_type # last element
 	else:
-		encoded_array.append(-1) # last element
+		encoded_array[-1] = -1 # last element
 	
 	return encoded_array
 
@@ -634,6 +641,9 @@ func _debug_is_valid_persist_value(value: Variant) -> bool:
 
 
 func _debug_assert_persist_object(object: Object) -> bool:
+	if not object is RefCounted and not object is Node:
+		assert(false, "Persist objects must be Node or RefCounted")
+		return false
 	if !_is_persist_object(object):
 		assert(false, "Can't persist a non-persist object; see IVTreeSaver doc")
 		return false
