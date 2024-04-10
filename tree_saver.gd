@@ -391,6 +391,7 @@ func _serialize_object_data(object: Object, serialized_object: Array) -> void:
 			n_properties = 0
 		serialized_object.append(n_properties)
 		for property in properties:
+			assert(property in object, "Specified persist property '%s' is not in object" % property)
 			var value: Variant = object.get(property)
 			assert(_debug_is_valid_persist_value(value))
 			serialized_object.append(_get_encoded_value(value))
@@ -418,6 +419,7 @@ func _deserialize_object_data(serialized_object: Array, is_node: bool) -> void:
 			var property: String = properties[property_index]
 			var encoded_value: Variant = serialized_object[index]
 			index += 1
+			assert(property in object, "Specified persist property '%s' is not in object" % property)
 			object.set(property, _get_decoded_value(encoded_value))
 			property_index += 1
 
