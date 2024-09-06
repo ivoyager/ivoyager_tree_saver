@@ -731,4 +731,3 @@ func _debug_assert_data_only_dictionary(dict: Dictionary) -> bool:
 func _dprint(arg: Variant, arg2: Variant = "", arg3: Variant = "", arg4: Variant = "") -> bool:
 	prints(arg, arg2, arg3, arg4)
 	return true
-
