@@ -344,4 +344,3 @@ static func _null_procedural_references_recursive(object: Object, nulled: Dictio
 						var key_object: Object = key
 						_null_procedural_references_recursive(key_object, nulled)
 						dict.erase(key)
-
