@@ -100,13 +100,12 @@ extends RefCounted
 ## did not exist in the previous game save version. However, all properties in
 ## the game save must exist in the updated class in the exact same order.
 
-const _DPRINT := false # set true for debug print
+const DPRINT := false # set true for debug print
 
-const _OBJECT_ID_OFFSET := 10_000_000_000_000 # allows this many different persist values
-const _WEAKREF_ID_OFFSET := 2 * _OBJECT_ID_OFFSET
-const _WEAKREF_NULL_ID := 3 * _OBJECT_ID_OFFSET
+const OBJECT_ID_OFFSET := 10_000_000_000_000 # allows this many different persist values
+const WEAKREF_ID_OFFSET := 2 * OBJECT_ID_OFFSET
+const WEAKREF_NULL_ID := 3 * OBJECT_ID_OFFSET
 
-# localized for convenience
 const PersistMode := IVSaveUtils.PersistMode
 const NO_PERSIST := PersistMode.NO_PERSIST
 const PERSIST_PROPERTIES_ONLY := PersistMode.PERSIST_PROPERTIES_ONLY
@@ -114,7 +113,7 @@ const PERSIST_PROCEDURAL := PersistMode.PERSIST_PROCEDURAL
 
 
 # localized
-var _persist_property_lists: Array[StringName] = IVSaveUtils.persist_property_lists
+var _persist_property_lists := IVSaveUtils.persist_property_lists
 
 # gamesave contents
 # Note: FileAccess.store_var() & get_var() doesn't save or recover array type
@@ -146,9 +145,9 @@ var _objects: Array[Object] = [] # indexed by object_id
 func get_gamesave(save_root: Node) -> Array:
 	assert(_debug_assert_persist_object(save_root))
 	_nonprocedural_path_root = save_root
-	assert(!_DPRINT or _dprint("* Registering tree for gamesave *"))
+	assert(!DPRINT or _dprint("* Registering tree for gamesave *"))
 	_index_tree(save_root)
-	assert(!_DPRINT or _dprint("* Serializing tree for gamesave *"))
+	assert(!DPRINT or _dprint("* Serializing tree for gamesave *"))
 	_serialize_tree(save_root)
 	var gamesave := [
 		_gamesave_n_objects,
@@ -269,7 +268,7 @@ func _locate_or_instantiate_objects(save_root: Node) -> void:
 	# Instantiates procecural objects (Node and RefCounted) without data.
 	# Indexes root and all persist objects (procedural and non-procedural).
 	# 'save_root' can be null if all nodes are procedural.
-	assert(!_DPRINT or _dprint("* Registering(/Instancing) Objects for Load *"))
+	assert(!DPRINT or _dprint("* Registering(/Instancing) Objects for Load *"))
 	_objects.resize(_gamesave_n_objects)
 	for serialized_node: Array in _gamesave_serialized_nodes:
 		var object_id: int = serialized_node[0]
@@ -283,11 +282,11 @@ func _locate_or_instantiate_objects(save_root: Node) -> void:
 		if script_id == -1: # non-procedural node; find it
 			var node_path: NodePath = serialized_node[2] # relative
 			node = save_root.get_node(node_path)
-			assert(!_DPRINT or _dprint(object_id, node, node.name))
+			assert(!DPRINT or _dprint(object_id, node, node.name))
 		else: # this is a procedural node
 			var script: Script = _scripts[script_id]
 			node = IVSaveUtils.make_object_or_scene(script)
-			assert(!_DPRINT or _dprint(object_id, node, script_id, _gamesave_script_paths[script_id]))
+			assert(!DPRINT or _dprint(object_id, node, script_id, _gamesave_script_paths[script_id]))
 		assert(node)
 		_objects[object_id] = node
 	for serialized_ref: Array in _gamesave_serialized_refs:
@@ -298,11 +297,11 @@ func _locate_or_instantiate_objects(save_root: Node) -> void:
 		var ref: RefCounted = script.new()
 		assert(ref)
 		_objects[object_id] = ref
-		assert(!_DPRINT or _dprint(object_id, ref, script_id, _gamesave_script_paths[script_id]))
+		assert(!DPRINT or _dprint(object_id, ref, script_id, _gamesave_script_paths[script_id]))
 
 
 func _deserialize_all_object_data() -> void:
-	assert(!_DPRINT or _dprint("* Deserializing Objects for Load *"))
+	assert(!DPRINT or _dprint("* Deserializing Objects for Load *"))
 	for serialized_node: Array in _gamesave_serialized_nodes:
 		_deserialize_object_data(serialized_node, true)
 	for serialized_ref: Array in _gamesave_serialized_refs:
@@ -332,9 +331,9 @@ func _serialize_node(node: Node) -> void:
 	if is_procedural:
 		var script: Script = node.get_script()
 		script_id = _get_script_id(script)
-		assert(!_DPRINT or _dprint(object_id, node, script_id, _gamesave_script_paths[script_id]))
+		assert(!DPRINT or _dprint(object_id, node, script_id, _gamesave_script_paths[script_id]))
 	else:
-		assert(!_DPRINT or _dprint(object_id, node, node.name))
+		assert(!DPRINT or _dprint(object_id, node, node.name))
 	serialized_node.append(script_id) # index 1
 	# index 2 will be node path or parent_id or -1
 	if !is_procedural: # non-procedural
@@ -359,7 +358,7 @@ func _index_and_serialize_ref(ref: RefCounted) -> int:
 	serialized_ref.append(object_id) # index 0
 	var script: Script = ref.get_script()
 	var script_id := _get_script_id(script)
-	assert(!_DPRINT or _dprint(object_id, ref, script_id, _gamesave_script_paths[script_id]))
+	assert(!DPRINT or _dprint(object_id, ref, script_id, _gamesave_script_paths[script_id]))
 	serialized_ref.append(script_id) # index 1
 	_serialize_object_data(ref, serialized_ref)
 	_gamesave_serialized_refs.append(serialized_ref)
@@ -436,7 +435,7 @@ func _get_encoded_value(value: Variant) -> Variant:
 		return _get_encoded_dict(dict) # dict
 	if type == TYPE_OBJECT:
 		var object: Object = value
-		return _get_encoded_object(object) # int >= _OBJECT_ID_OFFSET
+		return _get_encoded_object(object) # int >= OBJECT_ID_OFFSET
 	
 	# Index string types to avoid duplicated strings (e.g., many dict keys).
 	# String/StringName are interchangeable as dictionary keys, so we index
@@ -465,7 +464,7 @@ func _get_decoded_value(encoded_value: Variant) -> Variant:
 	var encoded_type := typeof(encoded_value)
 	if encoded_type == TYPE_INT: # object or indexed value
 		var index: int = encoded_value
-		if index >= _OBJECT_ID_OFFSET:
+		if index >= OBJECT_ID_OFFSET:
 			return _get_decoded_object(index)
 		return _gamesave_indexed_values[index]
 	if encoded_type == TYPE_ARRAY:
@@ -478,54 +477,64 @@ func _get_decoded_value(encoded_value: Variant) -> Variant:
 
 
 func _get_encoded_array(array: Array) -> Array:
-	# Encodes array type if applicable.
-	#
-	# As of Godot 4.2.beta5, godot file storage does not persist array types:
-	# https://github.com/godotengine/godot/issues/76841
-	# Therefore, we append type info so we can pop it in the decode method.
-	#
-	# TODO: When above issue is fixed, we can optimize here by duplicating
-	# non-object arrays. (We have many typed data arrays!)
+	# Typed arrays with non-container built-ins can be duplicated, which
+	# replicates the array type. Array[Array] and Array[Dictionary] can
+	# replicate array type but must be filled item by item.
+	# 
+	# Untyped and object-typed arrays are both encoded as untyped arrays. We
+	# append info to allow decoding.
 	
-	var encoded_array := []
 	var array_type := array.get_typed_builtin()
-	var is_typed := array_type != TYPE_NIL
+	if (array_type != TYPE_NIL and array_type != TYPE_ARRAY and array_type != TYPE_DICTIONARY
+			and array_type != TYPE_OBJECT):
+		return array.duplicate() # duplicates array type!
+	
 	var size := array.size()
-	encoded_array.resize(size + (3 if is_typed else 1))
+	var encoded_array := []
+	if array_type == TYPE_NIL:
+		# We append -1 to distiguish from an encoded object array.
+		encoded_array.resize(size + 1)
+		encoded_array[-1] = -1
+	elif array_type == TYPE_OBJECT:
+		# The encoded array will be untyped. We append object info for decoding.
+		var script: Script = array.get_typed_script()
+		assert(script)
+		var script_id := _get_script_id(script) # always >= 0
+		encoded_array.resize(size + 2)
+		encoded_array[-1] = script_id
+		encoded_array[-2] = array.get_typed_class_name() # StringName
+	else: # TYPE_ARRAY, TYPE_DICTIONARY
+		# We can persisted array type in the encoded array.
+		encoded_array = Array(encoded_array, array_type, &"", null)
+		encoded_array.resize(size)
+	
 	var index := 0
 	while index < size:
 		encoded_array[index] = _get_encoded_value(array[index])
 		index += 1
-	
-	# Append array type info to the encoded array.
-	if is_typed:
-		var script: Script = array.get_typed_script()
-		var script_id := _get_script_id(script) if script else -1
-		encoded_array[-3] = script_id
-		encoded_array[-2] = array.get_typed_class_name() # StringName
-		encoded_array[-1] = array_type # last element
-	else:
-		encoded_array[-1] = -1 # last element
-	
 	return encoded_array
 
 
 func _get_decoded_array(encoded_array: Array) -> Array:
-	# Return array may or may not be content-typed.
-	var array := []
+	# Inverse encoding above. Return type matches the original unencoded array.
 	
-	# Pop array content-type info from the back of the encoded array, then
-	# type the return array if applicable.
-	var array_type: int = encoded_array.pop_back()
-	if array_type != -1:
-		var typed_class_name: StringName = encoded_array.pop_back()
-		var script_id: int = encoded_array.pop_back()
-		var script: Script
-		if script_id != -1:
-			script = _scripts[script_id]
-		array = Array(array, array_type, typed_class_name, script) # last two often &"", null
+	var encoded_type := encoded_array.get_typed_builtin()
+	if encoded_type != TYPE_NIL and encoded_type != TYPE_ARRAY and encoded_type != TYPE_DICTIONARY:
+		return encoded_array.duplicate()
 	
 	var size := encoded_array.size()
+	var array := []
+	if encoded_type == TYPE_ARRAY or encoded_type == TYPE_DICTIONARY:
+		array = Array(array, encoded_type, &"", null)
+	elif encoded_array[-1] == -1: # originally untyped array
+		size -= 1
+	else: # object array
+		var typed_class_name: StringName = encoded_array[-2]
+		var script_id: int = encoded_array[-1]
+		var script := _scripts[script_id]
+		array = Array(array, TYPE_OBJECT, typed_class_name, script)
+		size -= 2
+	
 	array.resize(size)
 	var index := 0
 	while index < size:
@@ -535,6 +544,7 @@ func _get_decoded_array(encoded_array: Array) -> Array:
 
 
 func _get_encoded_dict(dict: Dictionary) -> Dictionary:
+	# TODO Godot 4.4: Dictionary typing!
 	var encoded_dict := {}
 	for key: Variant in dict:
 		var encoded_key: Variant = _get_encoded_value(key)
@@ -556,7 +566,7 @@ func _get_encoded_object(object: Object) -> int:
 		var wr: WeakRef = object
 		object = wr.get_ref()
 		if object == null:
-			return _WEAKREF_NULL_ID # WeakRef to a dead object
+			return WEAKREF_NULL_ID # WeakRef to a dead object
 		is_weak_ref = true
 	assert(_debug_assert_persist_object(object))
 	var object_id: int = _object_ids.get(object, -1)
@@ -565,15 +575,15 @@ func _get_encoded_object(object: Object) -> int:
 		var ref: RefCounted = object
 		object_id = _index_and_serialize_ref(ref)
 	if is_weak_ref:
-		return object_id + _WEAKREF_ID_OFFSET # WeakRef
-	return object_id + _OBJECT_ID_OFFSET # Object
+		return object_id + WEAKREF_ID_OFFSET # WeakRef
+	return object_id + OBJECT_ID_OFFSET # Object
 
 
 func _get_decoded_object(encoded_object: int) -> Object:
-	if encoded_object < _WEAKREF_ID_OFFSET:
-		return _objects[encoded_object - _OBJECT_ID_OFFSET]
-	if encoded_object < _WEAKREF_NULL_ID:
-		var object: Object = _objects[encoded_object - _WEAKREF_ID_OFFSET]
+	if encoded_object < WEAKREF_ID_OFFSET:
+		return _objects[encoded_object - OBJECT_ID_OFFSET]
+	if encoded_object < WEAKREF_NULL_ID:
+		var object: Object = _objects[encoded_object - WEAKREF_ID_OFFSET]
 		return weakref(object)
 	return WeakRef.new() # weak ref to dead object
 
