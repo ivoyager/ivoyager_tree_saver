@@ -2,9 +2,9 @@
 
 File format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [v0.0.2] - NOT RELEASED
+## [v0.0.2] - 2024-12-16
 
-Under development using Godot 4.3.
+Developed using Godot 4.3.
 
 ### Changed
 * Update for Godot fix to typed-array serialization. (Breaks pre-Godot 4.3 usage!)
@@ -18,4 +18,4 @@ Developed using Godot 4.2.1.
 Initial alpha release!
 
 
-[v0.0.2]: https://github.com/ivoyager/ivoyager_tree_saver/compare/v0.0.1...HEAD
+[v0.0.2]: https://github.com/ivoyager/ivoyager_tree_saver/compare/v0.0.1...v0.0.2
